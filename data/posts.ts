@@ -185,363 +185,744 @@ Tailwind CSS 让样式开发变得快速且一致。掌握这些技巧，你可�
     readTime: 6,
   },
   {
-    id: "openclaw-exec-tool",
-    title: "OpenClaw 能力教程：Exec — 像本地终端一样控制 Shell",
-    excerpt: "OpenClaw 的 exec 工具让你可以运行任意 shell 命令，支持前台/后台、TTY、环境变量覆盖、超时控制，是 Agent 执行自动化任务的核心工具。",
-    content: `# OpenClaw 能力教程：Exec — 像本地终端一样控制 Shell
+    id: "openclaw-model-io",
+    title: "教程对照：Model I/O → OpenClaw 的多模型提供商切换",
+    excerpt: "LangChain 教程里的 Model I/O 是模型输入输出抽象，而 OpenClaw 把这件事做成了开箱即用的多提供商切换能力。",
+    content: `# 教程对照：Model I/O → OpenClaw 的多模型提供商切换
 
-OpenClaw 的 **exec** 工具是 Agent 执行 Shell 命令的核心能力。它不只是简单的 \`subprocess.run\`，而是一个完整的命令执行环境，支持前台/后台执行、TTY 模式、环境变量注入、超时控制和沙箱隔离。
+在 \`ai-agents-from-zero\` 教程第 03 章「大模型核心开发框架」里，第一个模块是 **Model I/O**：它抽象了 LLM 的输入输出，让你用统一接口对接不同的大模型。
 
-## 为什么需要 exec？
+## 教程里的 Model I/O 是什么？
 
-Agent 需要与系统交互：安装依赖、运行测试、修改配置文件、启动服务……exec 就是 Agent 的「双手」。
+教程用 LangChain 做示范，核心是三个概念：
 
-## 基本用法
+1. **模型封装** — 用统一的 API 封装 OpenAI、Anthropic 等不同厂商的模型
+2. **提示词模板** — 把提示词做成可复用的模板
+3. **输出解析** — 把模型返回的文本解析成结构化数据
 
-\`\`\`javascript
-// 最简单的命令执行
-await exec({ command: "ls -la" });
+\`\`\`python
+from langchain_openai import ChatOpenAI
 
-// 指定工作目录
-await exec({ command: "npm install", workdir: "/path/to/project" });
-
-// 设置环境变量
-await exec({ command: "echo $API_KEY", env: { API_KEY: "***" } });
+# 换一个模型，只需换一行
+llm = ChatOpenAI(model="gpt-4o")
+# llm = ChatOpenAI(model="deepseek-chat")
 \`\`\`
 
-## 后台执行与过程管理
+## OpenClaw 的对应能力：多模型提供商切换
 
-长命令不需要阻塞主流程：
+OpenClaw 把 Model I/O 直接**内置到了运行时**。你不需要写任何胶水代码，模型切换就是配置层面的操作：
 
-\`\`\`javascript
-// 立即后台执行
-await exec({ command: "python train.py", background: true });
+\`\`\`bash
+# 查看可用模型
+openclaw models list
 
-// 或者自动超时后台化（10秒后转入后台）
-await exec({ command: "npm run build", yieldMs: 10000 });
-
-// 用 process 工具管理后台会话
-const { sessionId } = await exec({ command: "tail -f /var/log/app.log", background: true });
-// 后续可以用 process action=poll/log/write 来监控
+# 切换默认模型
+openclaw models set deepseek/deepseek-v4-flash
 \`\`\`
 
-## TTY 模式
+模型引用统一使用 \`provider/model\` 格式，例如：
 
-某些 CLI 工具（如 \`top\`、vim、交互式 Python）需要伪终端：
+- \`agnes/agnes-2.5-flash\`
+- \`deepseek/deepseek-v4-flash\`
+- \`anthropic/claude-sonnet-4-5\`
+- \`openai/gpt-5.6\`
 
-\`\`\`javascript
-await exec({ command: "top", pty: true });
+## 会话级覆盖
+
+除了全局默认模型，OpenClaw 还支持**会话级覆盖**——某个对话临时换个模型，不影响全局设置：
+
+\`\`\`text
+/new deepseek/deepseek-v4-flash   # 新会话使用该模型
+/model deepseek/deepseek-v4-flash # 当前会话切换模型
 \`\`\`
 
-## 执行位置控制
+## 模型故障转移（Failover）
 
-exec 可以在多个环境执行：
+教程里你要自己写重试逻辑，OpenClaw 内置了 **model failover**：主模型不可用时自动切换到备用模型，还有冷却探测机制，不用你操心。
 
-| host 参数 | 执行位置 | 适用场景 |
-|-----------|----------|----------|
-| \`auto\` | 有沙箱进沙箱，否则 Gateway | 默认，自动适配 |
-| \`sandbox\` | 沙箱内 | 隔离执行，安全 |
-| \`gateway\` | Gateway 宿主机 | 需要宿主机权限 |
-| \`node\` | 已配对的设备 | 跨设备执行 |
+## 对比总结
 
-## 超时与安全
+| 维度 | 教程（LangChain） | OpenClaw |
+|------|-------------------|----------|
+| 抽象方式 | 代码层 API 封装 | 配置 + CLI |
+| 切换模型 | 改代码 | 一条命令 |
+| 重试/降级 | 自己写 | 内置 failover |
+| 成本控制 | 无 | 内置计费与用量统计 |
 
-\`\`\`javascript
-// 设置超时（秒），0 表示不限时
-await exec({ command: "long-running-task", timeout: 300 });
-
-// 提升权限模式（需要授权）
-await exec({ command: "sudo systemctl restart nginx", elevated: true });
-\`\`\`
-
-## 最佳实践
-
-1. **优先用文件工具**：读/写/编辑文件比 exec 更安全直观
-2. **后台化长任务**：超过 10 秒的命令建议用 \`background\` 或 \`yieldMs\`
-3. **设置合理超时**：避免命令无限挂起
-4. **善用 workdir**：不要依赖 cwd 假设，显式指定工作目录
-5. **沙箱优先**：默认 auto 模式会自动进沙箱，确保隔离执行`,
+**一句话**：教程教你用代码抽象模型 I/O，OpenClaw 把这件事做成了开箱即用的运行时能力。`,
     date: "2026-08-04",
-    category: "技术",
-    tags: ["OpenClaw", "Exec", "Shell", "自动化"],
-    coverImage: "/images/cover-oc-exec.jpg",
+    category: "教程对照",
+    tags: ["教程对照", "Model I/O", "OpenClaw", "模型"],
+    coverImage: "/images/cover-oc-model.jpg",
     readTime: 5,
   },
   {
-    id: "openclaw-subagents",
-    title: "OpenClaw 能力教程：Sub-agents — 让 Agent 并行工作",
-    excerpt: "Sub-agents 是 OpenClaw 最强大的并发能力之一。通过 sessions_spawn 工具，你可以启动后台代理并行处理多个任务，大幅提升工作效率。",
-    content: `# OpenClaw 能力教程：Sub-agents — 让 Agent 并行工作
+    id: "openclaw-prompt-template",
+    title: "教程对照：提示词与消息模板 → OpenClaw 的 Prompt 系统",
+    excerpt: "教程里的提示词模板需要手写代码拼接，OpenClaw 则把 prompt 系统做成了分层的自动装配机制。",
+    content: `# 教程对照：提示词与消息模板 → OpenClaw 的 Prompt 系统
 
-**Sub-agents** 是 OpenClaw 中最强大的并发能力之一。它们让你可以启动后台代理，并行处理多个任务，而不会阻塞主对话流程。
+教程第 03 章的第二个模块是 **提示词与消息模板**。在 LangChain 里，你需要用 \`PromptTemplate\`、\`ChatPromptTemplate\` 这些类来组织提示词。
 
-## 什么是 Sub-agent？
+## 教程里的做法
 
-Sub-agent 是独立的 Agent 会话，运行在与主会话隔离的环境中。每个 Sub-agent 都有自己的上下文和 token 消耗，完成工作时会将结果回报给主会话。
+\`\`\`python
+from langchain_core.prompts import ChatPromptTemplate
 
-## 为什么要用 Sub-agents？
-
-- **并行化**：多个任务同时执行，而非串行等待
-- **隔离性**：每个 Sub-agent 有独立的上下文，互不干扰
-- **后台运行**：不阻塞当前对话，完成时自动通知
-- **灵活配置**：可以为每个 Sub-agent 设置不同的模型和参数
-
-## 基本用法
-
-\`\`\`javascript
-// 启动一个后台 Sub-agent
-const result = await sessions_spawn({
-  task: "分析这50个CSV文件，提取所有数值列",
-  mode: "run",
-  model: "deepseek/deepseek-v4-flash", // 可以用更便宜的模型
-});
+prompt = ChatPromptTemplate.from_messages([
+    ("system", "你是一个{role}，请用{style}的语气回答"),
+    ("human", "{input}"),
+])
 \`\`\`
 
-## 使用场景
+核心思想：把提示词拆成**角色消息**、**变量占位**、**消息列表**，运行时再填充。
 
-### 1. 批量数据收集
+## OpenClaw 的对应能力：分层 Prompt 系统
 
-\`\`\`javascript
-// 同时调查多个股票
-const tasks = ["AAPL", "GOOGL", "MSFT", "TSLA", "NVDA"].map(symbol => ({
-  task: "分析 " + symbol + " 的股票数据和技术指标",
-  runtime: "subagent",
-}));
-for (const t of tasks) sessions_spawn(t);
-\`\`\`
+OpenClaw 没有运行时默认提示词，而是为每次运行**动态装配**系统提示词，分三层：
 
-### 2. 并行研究
+1. **buildAgentSystemPrompt** — 纯渲染器，把显式输入渲染成提示词
+2. **resolveAgentSystemPromptConfig** — 解析配置开关（显示名、TTS 提示、模型别名等）
+3. **运行时适配器** — 收集工具、沙箱状态、频道能力、上下文文件等实时信息
 
-\`\`\`javascript
-// 同时搜索多个主题
-sessions_spawn({
-  task: "搜索 OpenClaw 的最新文档和社区动态",
-  label: "oc-docs-research",
-});
-sessions_spawn({
-  task: "搜索 Next.js 的最新版本更新",
-  label: "nextjs-research",
-});
-sessions_yield(); // 等待完成事件
-\`\`\`
+## 固定区块结构
 
-### 3. 数据预处理
+OpenClaw 的 system prompt 有固定区块，类似教程里的消息模板：
 
-\`\`\`javascript
-// 启动数据处理 Sub-agent
-sessions_spawn({
-  task: "读取 data/ 目录下的所有 CSV，合并后生成 report.csv",
-  cwd: "/path/to/project",
-  mode: "run",
-});
-\`\`\`
+- **Tooling** — 工具使用的规则与提示
+- **Execution Bias** — 执行偏好（当前轮就行动、继续直到完成）
+- **Safety** — 安全护栏提醒
+- **Skills** — 技能加载指引
+- **Workspace Files** — 注入 AGENTS.md / SOUL.md / USER.md 等
+- **Runtime** — 主机、OS、模型、时区等实时信息
 
-## Sub-agent 的隔离性
+## 工作区文件即「模板变量」
 
-默认情况下，Sub-agent **不会**获得 session 或 message 工具，确保它们只专注于特定任务。如果 Sub-agent 确实需要访问主会话的上下文，可以使用 \`context: "fork"\`。
+教程的模板变量靠代码填充，OpenClaw 直接把你工作区里的文件注入上下文：
 
-## 最佳实践
+| 文件 | 作用 |
+|------|------|
+| \`AGENTS.md\` | 操作指令 + 记忆 |
+| \`SOUL.md\` | 人设、边界、语气 |
+| \`USER.md\` | 用户画像 |
+| \`IDENTITY.md\` | 身份信息 |
+| \`HEARTBEAT.md\` | 心跳任务指令 |
 
-1. **选择合适的模型**：复杂任务用高质量模型，简单任务用便宜模型
-2. **避免嵌套过深**：子代理不应该再 spawn 更多的子代理
-3. **使用 sessions_yield**：spawn 后调用 yield 等待完成事件
-4. **合理设置标签**：给 Sub-agent 设置有意义的 label，方便追踪
-5. **控制上下文大小**：简单任务用更精简的上下文，节省 token`,
+这些就是 OpenClaw 版的「消息模板」——你改文件，不用改代码。
+
+## 缓存感知的提示词设计
+
+OpenClaw 还会把稳定的内容放在缓存边界之上，易变内容（频道名、心跳、运行时）放在边界之下，让本地后端可以复用前缀缓存——这是教程里不会讲的工程细节。
+
+**一句话**：教程用代码组织提示词，OpenClaw 用文件 + 配置 + 自动装配组织提示词。`,
     date: "2026-08-04",
-    category: "技术",
-    tags: ["OpenClaw", "Sub-agents", "并发", "自动化"],
-    coverImage: "/images/cover-oc-subagents.jpg",
+    category: "教程对照",
+    tags: ["教程对照", "提示词", "Prompt", "OpenClaw"],
+    coverImage: "/images/cover-oc-prompt.jpg",
     readTime: 5,
   },
   {
-    id: "openclaw-cron",
-    title: "OpenClaw 能力教程：Cron — 定时任务与自动化调度",
-    excerpt: "OpenClaw 内置的 Cron 调度器支持一次性提醒、周期性任务和复杂的 Cron 表达式。本文带你了解如何使用定时任务实现自动化。",
-    content: `# OpenClaw 能力教程：Cron — 定时任务与自动化调度
+    id: "openclaw-output-parser",
+    title: "教程对照：输出解析器 → OpenClaw 的结构化输出",
+    excerpt: "教程用 OutputParser 把模型文本解析成 JSON，OpenClaw 在工具层直接保证结构化返回。",
+    content: `# 教程对照：输出解析器 → OpenClaw 的结构化输出
 
-OpenClaw 内置了功能强大的 **Cron** 调度器，支持一次性提醒、周期性任务和复杂的 Cron 表达式，让 Agent 能够在指定时间自动执行任务。
+教程的第三个模块是 **输出解析器**：模型返回的是自由文本，但程序往往需要结构化数据，于是有了 PydanticOutputParser 之类的解析器。
 
-## 核心概念
+## 教程里的做法
 
-Cron 任务运行在 **Gateway 进程内部**，任务定义、运行状态和历史记录都持久化在 SQLite 数据库中，重启不会丢失。
+\`\`\`python
+from langchain_core.output_parsers import PydanticOutputParser
 
-## 基本用法
-
-### 一次性提醒
-
-\`\`\`bash
-openclaw cron create "2027-02-01T16:00:00Z" \\
-  --name "Reminder" \\
-  --session main \\
-  --system-event "Reminder: check the cron docs draft" \\
-  --wake now \\
-  --delete-after-run
+parser = PydanticOutputParser(pydantic_object=MyModel)
+# 把 format_instructions 拼进提示词，让模型按格式输出
 \`\`\`
 
-### 周期性任务
+思路：告诉模型「请按这个格式输出」→ 拿到文本 → 代码解析校验。
+
+## OpenClaw 的对应能力：工具层结构化输出
+
+OpenClaw 不需要你手写解析器——**工具的输入输出天然是 JSON Schema**。
+
+每个工具都有严格定义的参数结构，模型调用工具时按 Schema 填参，框架校验后执行，结果同样结构化返回。
+
+\`\`\`json
+{
+  "name": "web_search",
+  "parameters": {
+    "type": "object",
+    "properties": {
+      "query": { "type": "string" }
+    },
+    "required": ["query"]
+  }
+}
+\`\`\`
+
+## 解析错误处理
+
+教程里要自己处理解析失败（重试、容错）。OpenClaw 在运行时层面处理：
+
+- 参数校验失败 → 框架自动反馈给模型重新生成
+- 输出不符合 Schema → 工具层报错并纠正
+- 部分失败 → 继续执行其他工具
+
+## 对比总结
+
+| 维度 | 教程 | OpenClaw |
+|------|------|----------|
+| 结构化方式 | 提示词 + 代码解析 | 工具 Schema 原生约束 |
+| 校验 | 自己写 | 框架内置 |
+| 失败重试 | 自己写 | 自动纠正 |
+
+**一句话**：教程在模型输出之后做解析，OpenClaw 在模型调用之前就用 Schema 约束住结构。`,
+    date: "2026-08-04",
+    category: "教程对照",
+    tags: ["教程对照", "输出解析", "结构化", "OpenClaw"],
+    coverImage: "/images/cover-oc-parser.jpg",
+    readTime: 4,
+  },
+  {
+    id: "openclaw-lcel",
+    title: "教程对照：LCEL 链式调用 → OpenClaw 的工具编排",
+    excerpt: "教程用 LCEL 的管道符把组件串成链，OpenClaw 用工具调用 + 子代理把任务编排成流程。",
+    content: `# 教程对照：LCEL 链式调用 → OpenClaw 的工具编排
+
+教程的第四个模块是 **LCEL（LangChain Expression Language）**：用 \`|\` 管道符把提示词、模型、解析器串成一条链。
+
+## 教程里的做法
+
+\`\`\`python
+chain = prompt | llm | parser
+result = chain.invoke({"input": "你好"})
+\`\`\`
+
+一条链 = 数据从左到右流过每个组件，每个组件消费上一个的输出。
+
+## OpenClaw 的对应能力：工具编排
+
+OpenClaw 的「链」不是代码管道，而是 **Agent 循环中的工具编排**：
+
+1. 模型分析任务 → 决定调用哪个工具
+2. 工具执行返回结果
+3. 模型根据结果决定下一步
+4. 循环直到任务完成
+
+\`\`\`
+用户提问 → Agent 理解 → 调 web_search → 分析结果 → 调 exec 处理 → 汇总回答
+\`\`\`
+
+## 更复杂的编排：Sub-agents
+
+教程里复杂逻辑要写 LangGraph 图，OpenClaw 里你直接用 **子代理（Sub-agents）** 做并行编排：
+
+\`\`\`javascript
+// 同时派多个子代理并行调研
+sessions_spawn({ task: "分析 AAPL 股票", label: "aapl" });
+sessions_spawn({ task: "分析 TSLA 股票", label: "tsla" });
+sessions_yield(); // 等结果回来
+\`\`\`
+
+## 对比总结
+
+| 维度 | 教程（LCEL） | OpenClaw |
+|------|-------------|----------|
+| 编排方式 | 代码管道 | Agent 循环 + 工具 |
+| 分支/并行 | 需要 LangGraph | 子代理原生支持 |
+| 动态决策 | 有限 | 模型每轮自主决策 |
+
+**一句话**：LCEL 是静态写死的链，OpenClaw 是模型动态决策的编排——链是死的，编排是活的。`,
+    date: "2026-08-04",
+    category: "教程对照",
+    tags: ["教程对照", "LCEL", "工具编排", "OpenClaw"],
+    coverImage: "/images/cover-oc-lcel.jpg",
+    readTime: 5,
+  },
+  {
+    id: "openclaw-memory",
+    title: "教程对照：记忆与对话历史 → OpenClaw 的 Memory 系统",
+    excerpt: "教程里要自己接数据库存对话历史，OpenClaw 用 Markdown 文件就完成了记忆持久化。",
+    content: `# 教程对照：记忆与对话历史 → OpenClaw 的 Memory 系统
+
+教程第五个模块是 **记忆与对话历史**。LangChain 用 Memory 类管理历史消息，存内存或接外部数据库。
+
+## 教程里的做法
+
+\`\`\`python
+from langchain.memory import ConversationBufferMemory
+
+memory = ConversationBufferMemory()
+memory.save_context({"input": "你好"}, {"output": "你好！"})
+\`\`\`
+
+问题：内存型记忆重启就丢，持久化要自己接数据库。
+
+## OpenClaw 的对应能力：文件即记忆
+
+OpenClaw 的记忆方式简单粗暴但极其有效：**把记忆写成 Markdown 文件**。模型只记得落盘的内容，没有隐藏状态。
+
+三个核心文件：
+
+- **\`MEMORY.md\`** — 长期记忆：持久的事实、偏好、决策，会话开始时加载
+- **\`memory/YYYY-MM-DD.md\`** — 每日笔记：当天发生的事、观察、会话摘要
+- **\`DREAMS.md\`**（可选）— 梦境日记与总结
+
+## 用法示例
+
+\`\`\`text
+# MEMORY.md
+- 用户叫 Talon，称呼「景清老祖」
+- 时区：Asia/Shanghai
+- 偏好：沟通随意，做事严谨
+- 项目：blog-demo（Next.js），仓库在 GitHub
+\`\`\`
+
+跟 Agent 说一句「记住我喜欢 TypeScript」，它就会写进记忆文件，下次会话自动生效。
+
+## 分层记忆策略
+
+| 层级 | 文件 | 用途 | 注入时机 |
+|------|------|------|----------|
+| 长期 | \`MEMORY.md\` | 精选的事实与决策 | 会话开始 |
+| 短期 | \`memory/*.md\` | 详细笔记与观察 | 按需检索 |
+
+Agent 会定期把每日笔记里的精华提炼进 \`MEMORY.md\`，把过时的内容清掉——这就是教程里说的记忆整理，只不过它是自动的。
+
+## 记忆检索
+
+\`memory_search\` 工具支持语义搜索记忆文件，即使措辞和原文不同也能找到相关内容——对应教程里的「记忆检索」概念。
+
+**一句话**：教程用代码管理对话历史，OpenClaw 用文件 + 自动整理管理记忆，重启不丢。`,
+    date: "2026-08-04",
+    category: "教程对照",
+    tags: ["教程对照", "记忆", "Memory", "OpenClaw"],
+    coverImage: "/images/cover-oc-memory.jpg",
+    readTime: 5,
+  },
+  {
+    id: "openclaw-tools",
+    title: "教程对照：Tools 工具调用 → OpenClaw 的工具注册机制",
+    excerpt: "教程教你如何给 Agent 定义工具函数，OpenClaw 直接内置了几十个开箱即用的工具。",
+    content: `# 教程对照：Tools 工具调用 → OpenClaw 的工具注册机制
+
+教程第六个模块是 **Tools 工具调用**：让 LLM 不只是聊天，还能调用外部函数。
+
+## 教程里的做法
+
+\`\`\`python
+from langchain_core.tools import tool
+
+@tool
+def add(a: int, b: int) -> int:
+    """两数相加"""
+    return a + b
+\`\`\`
+
+核心：把函数描述成 Schema 给模型，模型按需调用。
+
+## OpenClaw 的对应能力：内置工具全家桶
+
+OpenClaw 内置了大量工具，都是同一套注册机制管理：
+
+| 类别 | 工具示例 |
+|------|----------|
+| 文件 | read / write / edit / apply_patch |
+| 执行 | exec / process |
+| 网络 | web_search / web_fetch |
+| 调度 | cron |
+| 记忆 | memory_search / memory_get |
+| 协作 | sessions_spawn / sessions_send |
+| 股票 | 行情 / K线 / 资金流 等几十个 |
+
+## 工具的组织方式
+
+- **Built-in tools**：核心系统工具，永远可用
+- **Plugin tools**：插件注册的工具（浏览器、语音、日历等）
+- **MCP tools**：通过 MCP 协议接入的第三方工具
+- **Skill tools**：技能文件指导的工具用法
+
+## 工具策略控制
+
+教程里没有权限概念，OpenClaw 有完整的工具策略：
+
+\`\`\`json5
+{
+  tools: {
+    allow: ["read", "write", "web_search"], // 白名单
+    deny: ["exec"],                         // 黑名单优先
+  },
+}
+\`\`\`
+
+还能按频道、按会话、按子代理分别控制工具可用性。
+
+**一句话**：教程从零定义第一个工具，OpenClaw 直接给你几十个现成的，还带权限管理。`,
+    date: "2026-08-04",
+    category: "教程对照",
+    tags: ["教程对照", "Tools", "工具调用", "OpenClaw"],
+    coverImage: "/images/cover-oc-tools.jpg",
+    readTime: 5,
+  },
+  {
+    id: "openclaw-vector-embedding",
+    title: "教程对照：向量数据库与 Embedding → OpenClaw 的 memory_search",
+    excerpt: "教程里要部署向量数据库、写嵌入逻辑，OpenClaw 把语义搜索直接做进了记忆系统。",
+    content: `# 教程对照：向量数据库与 Embedding → OpenClaw 的 memory_search
+
+教程第七个模块是 **向量数据库与 Embedding**：把文本转成向量，存进向量库，用相似度做检索。
+
+## 教程里的做法
+
+\`\`\`python
+from langchain_openai import OpenAIEmbeddings
+from langchain_community.vectorstores import Chroma
+
+vectorstore = Chroma.from_documents(docs, OpenAIEmbeddings())
+result = vectorstore.similarity_search("怎么部署模型？")
+\`\`\`
+
+要自己：选嵌入模型 → 启动向量库 → 写检索逻辑。
+
+## OpenClaw 的对应能力：内置语义搜索
+
+OpenClaw 的 \`memory_search\` 就是「向量数据库 + Embedding」的封装：
+
+1. 把记忆文件**分块**（chunking）
+2. 用嵌入模型转成向量
+3. 混合检索（向量 + 关键词）
+4. 返回相关片段
+
+\`\`\`
+用户：之前我们讨论过 OpenClaw 和 LangChain 的关系吗？
+Agent：memory_search({ query: "OpenClaw LangChain 关系" })
+→ 命中 8 月 3 日的会话总结，直接引用回答
+\`\`\`
+
+## 嵌入提供商可配置
+
+教程里固定用一个嵌入模型，OpenClaw 支持多种提供商切换：
+
+| 提供商 | 是否需要 Key | 特点 |
+|--------|-------------|------|
+| OpenAI | 是 | 默认 |
+| Ollama | 否 | 本地部署 |
+| Gemini | 是 | 支持图片/音频索引 |
+| Voyage | 是 | 高质量嵌入 |
+| Local | 否 | GGUF 模型本地跑 |
+
+\`\`\`json5
+{
+  agents: {
+    defaults: {
+      memorySearch: { provider: "ollama" },
+    },
+  },
+}
+\`\`\`
+
+**一句话**：教程自己搭向量检索，OpenClaw 把 Embedding + 向量库 + 混合检索打包成了 memory_search 一个工具。`,
+    date: "2026-08-04",
+    category: "教程对照",
+    tags: ["教程对照", "向量数据库", "Embedding", "OpenClaw"],
+    coverImage: "/images/cover-oc-vector.jpg",
+    readTime: 5,
+  },
+  {
+    id: "openclaw-rag",
+    title: "教程对照：RAG 检索增强 → OpenClaw 的上下文注入",
+    excerpt: "教程里 RAG 要自己搭检索+生成链路，OpenClaw 把相关上下文自动注入到每次对话。",
+    content: `# 教程对照：RAG 检索增强 → OpenClaw 的上下文注入
+
+教程第八个模块是 **RAG（检索增强生成）**：先从知识库检索相关内容，再带着检索结果去生成答案。
+
+## 教程里的做法
+
+\`\`\`python
+retriever = vectorstore.as_retriever()
+chain = (
+    {"context": retriever, "question": RunnablePassthrough()}
+    | prompt
+    | llm
+)
+\`\`\`
+
+核心链路：文档切分 → 向量化 → 检索 → 拼进提示词 → 生成。
+
+## OpenClaw 的对应能力：上下文注入
+
+OpenClaw 的 RAG 就是**上下文引擎**（Context Engine）：每次运行前自动决定把哪些内容塞进模型上下文。
+
+它会注入：
+
+1. **工作区文件** — AGENTS.md、SOUL.md、USER.md、MEMORY.md
+2. **近期记忆** — 当天的每日笔记
+3. **检索结果** — memory_search 命中的相关片段
+4. **会话历史** — 按需包含或压缩
+
+## 上下文引擎可插拔
+
+教程里 RAG 链路是写死的，OpenClaw 的上下文引擎是**可插拔插件**：
+
+\`\`\`json5
+{
+  plugins: {
+    slots: {
+      contextEngine: "lossless-claw", // 换一个上下文引擎插件
+    },
+  },
+}
+\`\`\`
+
+不同的引擎决定：包含哪些消息、如何压缩历史、如何跨子代理管理上下文。
+
+## 历史压缩（上下文管理）
+
+RAG 教程没讲的痛点：上下文越用越满。OpenClaw 内置处理：
+
+- **自动压缩** — 旧消息摘要化
+- **会话重置** — daily reset / idle reset
+- **上下文修剪** — session pruning
+
+## 对比总结
+
+| 维度 | 教程（RAG） | OpenClaw |
+|------|-------------|----------|
+| 检索源 | 自建知识库 | 记忆文件 + 工作区 |
+| 链路搭建 | 自己拼 | 引擎自动装配 |
+| 上下文管理 | 无 | 压缩/重置/修剪 |
+
+**一句话**：RAG 是「先检索再生成」，OpenClaw 把这件事做成了每次对话自动发生的上下文注入。`,
+    date: "2026-08-04",
+    category: "教程对照",
+    tags: ["教程对照", "RAG", "上下文", "OpenClaw"],
+    coverImage: "/images/cover-oc-rag.jpg",
+    readTime: 5,
+  },
+  {
+    id: "openclaw-mcp",
+    title: "教程对照：MCP 协议 → OpenClaw 原生支持 MCP 服务器",
+    excerpt: "教程介绍 MCP 如何统一工具接口，OpenClaw 既是 MCP 客户端也是 MCP 服务器。",
+    content: `# 教程对照：MCP 协议 → OpenClaw 原生支持 MCP 服务器
+
+教程第九个模块是 **MCP（Model Context Protocol）**：Anthropic 提出的开放协议，统一 AI 应用与外部工具/数据源的连接方式。
+
+## MCP 解决什么问题？
+
+没有 MCP 时，每接一个新工具就要写一套集成代码。有了 MCP：
+
+- 工具提供方实现一次 MCP 服务器
+- AI 应用作为 MCP 客户端直接连接
+- 工具发现、调用、鉴权全走标准协议
+
+## OpenClaw 的对应能力：MCP 客户端 + 服务器
+
+OpenClaw 原生支持 MCP，而且**双向**都支持：
+
+### 作为 MCP 客户端
+
+把第三方 MCP 服务器注册进来，工具直接可用：
 
 \`\`\`bash
-# 每天早上 9 点执行
-openclaw cron add \\
-  --name "Daily Morning Brief" \\
-  --cron "0 9 * * *" \\
-  --tz "Asia/Shanghai" \\
+# 注册一个 MCP 服务器
+openclaw mcp add my-tools -- npx some-mcp-server
+
+# 查看状态
+openclaw mcp status
+
+# 测试连接
+openclaw mcp probe my-tools
+\`\`\`
+
+### 作为 MCP 服务器
+
+OpenClaw 自己也能作为 MCP 服务器暴露能力，让 Codex、Claude Code 等外部客户端接入：
+
+\`\`\`bash
+openclaw mcp serve
+\`\`\`
+
+## 常用命令
+
+| 命令 | 作用 |
+|------|------|
+| \`openclaw mcp list\` | 列出已保存的服务器 |
+| \`openclaw mcp add\` | 添加服务器 |
+| \`openclaw mcp configure\` | 配置服务器 |
+| \`openclaw mcp tools\` | 查看可用工具 |
+| \`openclaw mcp serve\` | 作为服务器对外服务 |
+
+## 对比总结
+
+| 维度 | 教程 | OpenClaw |
+|------|------|----------|
+| 实现方式 | 手写 MCP 服务器 | CLI 一条命令 |
+| 客户端 | 教程示例 | 内置 + 注册即可 |
+| 生态 | 自己探索 | MCP 生态直接可用 |
+
+**一句话**：教程教你理解 MCP 协议原理，OpenClaw 让你直接用——注册一个服务器，工具立刻进 Agent 的工具箱。`,
+    date: "2026-08-04",
+    category: "教程对照",
+    tags: ["教程对照", "MCP", "协议", "OpenClaw"],
+    coverImage: "/images/cover-oc-mcp.jpg",
+    readTime: 5,
+  },
+  {
+    id: "openclaw-agent-runtime",
+    title: "教程对照：Agent 智能体 → OpenClaw 本身就是 Agent 运行时",
+    excerpt: "教程教你从零构建 Agent 的思考-行动循环，OpenClaw 直接就是一个完整运行的 Agent。",
+    content: `# 教程对照：Agent 智能体 → OpenClaw 本身就是 Agent 运行时
+
+教程第十个模块是 **Agent 智能体**：一个能自主「思考-行动-观察」循环的 AI 程序。
+
+## 教程里的做法
+
+教程教你实现 Agent 的核心循环：
+
+1. 模型接收任务
+2. 决定调用哪个工具
+3. 执行工具
+4. 观察结果
+5. 循环直到完成
+
+\`\`\`python
+# 简化示意
+while not done:
+    thought = llm.invoke(messages)
+    action = parse_action(thought)
+    result = execute(action)
+    messages.append(result)
+\`\`\`
+
+## OpenClaw 的对应能力：完整的 Agent 运行时
+
+OpenClaw 内置了一个**嵌入式 Agent 运行时**：Agent 循环、工具接线、提示词装配全打包好了。
+
+你现在对话的「春风」就是一个运行中的 Agent，它的循环包括：
+
+- **感知** — 接收消息、心跳、定时任务
+- **思考** — 分析任务、规划步骤
+- **行动** — 调用工具（读写文件、搜索、执行命令）
+- **记忆** — 写入/检索记忆文件
+- **反馈** — 回复用户、推送结果
+
+## Agent 的工作区契约
+
+每个 Agent 有自己的工作区，里面是它的「大脑」：
+
+| 文件 | 作用 |
+|------|------|
+| \`AGENTS.md\` | 操作指令 |
+| \`SOUL.md\` | 人设与边界 |
+| \`MEMORY.md\` | 长期记忆 |
+| \`USER.md\` | 用户画像 |
+
+## 多 Agent 架构
+
+教程只讲单个 Agent，OpenClaw 支持**多 Agent 路由**：
+
+- 每个 Agent 独立工作区、独立会话
+- 主 Agent 可以派生子代理并行工作
+- 不同 Agent 可配置不同模型
+
+**一句话**：教程教你造 Agent 的轮子，OpenClaw 是一辆已经造好、正在跑的车——你正在跟它对话。`,
+    date: "2026-08-04",
+    category: "教程对照",
+    tags: ["教程对照", "Agent", "智能体", "OpenClaw"],
+    coverImage: "/images/cover-oc-agent.jpg",
+    readTime: 6,
+  },
+  {
+    id: "openclaw-langgraph",
+    title: "教程对照：LangGraph 图/状态/节点/边 → OpenClaw 的会话与调度",
+    excerpt: "教程用 LangGraph 把 Agent 流程画成状态图，OpenClaw 用会话管理 + 调度系统实现同等编排。",
+    content: `# 教程对照：LangGraph 图/状态/节点/边 → OpenClaw 的会话与调度
+
+教程第十一个模块是 **LangGraph**：用图的方式编排 Agent——**节点**是处理步骤，**边**是流转方向，**状态**在节点间传递。
+
+## 教程里的做法
+
+\`\`\`python
+from langgraph.graph import StateGraph, END
+
+builder = StateGraph(State)
+builder.add_node("agent", agent_node)
+builder.add_node("tools", tools_node)
+builder.add_edge("agent", "tools")
+builder.add_conditional_edges("tools", should_continue)
+\`\`\`
+
+核心思想：把流程显式建模成图，状态（State）在节点间流动。
+
+## OpenClaw 的对应能力：会话管理 + 调度系统
+
+OpenClaw 没有让你画图，而是用两个内置系统实现了同样的编排：
+
+### 1. 会话管理（状态）
+
+每个对话是一个 **session**，它就是 LangGraph 里的 State：
+
+| 来源 | 行为 |
+|------|------|
+| 私聊 | 共享会话 |
+| 群聊 | 按群隔离 |
+| Cron | 每次运行新会话 |
+| Webhook | 按钩子隔离 |
+
+会话有生命周期：daily reset（每天重置）、idle reset（闲置重置）、手动 /new。
+
+### 2. 调度系统（边）
+
+LangGraph 的「边」决定流程走向，OpenClaw 用 **cron 调度**决定任务何时流转：
+
+\`\`\`bash
+# 每天早上 9 点触发一个流程
+openclaw cron add --cron "0 9 * * *" --tz "Asia/Shanghai" \
   --system-event "发送每日早报"
 \`\`\`
 
-### 使用 Cron 表达式
+调度类型：一次性（at）、间隔（every）、Cron 表达式（cron）。
 
-OpenClaw 支持标准 5 字段 Cron 表达式：
+## 从图到现实：完整对应
 
-| 字段 | 含义 | 示例 |
-|------|------|------|
-| 分钟 | 0-59 | 0 |
-| 小时 | 0-23 | 9 |
-| 日 | 1-31 | * |
-| 月 | 1-12 | * |
-| 周 | 0-6 | 1-5 |
+| LangGraph 概念 | OpenClaw 对应 |
+|----------------|---------------|
+| State | Session 上下文 |
+| Node | Agent 回合 / 工具调用 |
+| Edge | 会话路由 / cron 触发 |
+| 条件分支 | 模型决策 + 工具选择 |
+| 并行分支 | Sub-agents 并发 |
 
-**常用示例**：
-- \`*/15 * * * *\` — 每 15 分钟
-- \`0 9 * * 1-5\` — 工作日早上 9 点
-- \`0 2 * * *\` — 每天凌晨 2 点
+## 背景任务（Task Flow）
 
-## 任务类型
+复杂流程教程里要精心画图，OpenClaw 提供 **TaskFlow** 做持久化多步任务：有 owner 上下文、状态、等待、子任务，适合收件箱处理等真实工作流。
 
-Cron 支持两种任务类型：
-
-### 1. System Event（系统事件）
-
-注入文本作为系统事件，适合提醒和通知：
-
-\`\`\`javascript
-cron({
-  action: "add",
-  schedule: { kind: "cron", expr: "0 9 * * *", tz: "Asia/Shanghai" },
-  payload: { kind: "systemEvent", text: "发送每日早报..." },
-  delivery: { mode: "announce" }
-});
-\`\`\`
-
-### 2. Agent Turn（Agent 轮次）
-
-让 Agent 执行完整任务，适合自动化工作流：
-
-\`\`\`javascript
-cron({
-  action: "add",
-  schedule: { kind: "every", everyMs: 3600000 },
-  payload: {
-    kind: "agentTurn",
-    message: "检查所有待处理的 PR"
-  },
-  sessionTarget: "isolated"
-});
-\`\`\`
-
-## 交付方式
-
-Cron 任务支持多种输出方式：
-
-| 模式 | 说明 | 适用场景 |
-|------|------|----------|
-| none | 不输出 | 后台任务 |
-| announce | 发送到聊天频道 | 提醒通知 |
-| webhook | POST 到指定 URL | 集成外部系统 |
-
-## 管理命令
-
-\`\`\`bash
-# 列出所有任务
-openclaw cron list
-
-# 查看任务详情
-openclaw cron get <job-id>
-
-# 查看运行历史
-openclaw cron runs --id <job-id>
-
-# 立即执行
-openclaw cron run <job-id> --run-mode force
-
-# 删除任务
-openclaw cron remove <job-id>
-\`\`\`
-
-## 最佳实践
-
-1. **区分 heartbeat 和 cron**：简单定期检查用 heartbeat，精确定时任务用 cron
-2. **设置超时**：避免任务无限挂起
-3. **使用 deleteAfterRun**：一次性任务完成后自动删除
-4. **合理选择 sessionTarget**：main 用于系统事件，isolated 用于独立任务
-5. **监控运行历史**：定期检查 cron runs 确保任务正常执行`,
+**一句话**：教程用代码画状态图，OpenClaw 用会话 + 调度 + 任务系统把同样的编排做成了运行时能力。`,
     date: "2026-08-04",
-    category: "技术",
-    tags: ["OpenClaw", "Cron", "定时任务", "自动化"],
-    coverImage: "/images/cover-oc-cron.jpg",
+    category: "教程对照",
+    tags: ["教程对照", "LangGraph", "会话管理", "OpenClaw"],
+    coverImage: "/images/cover-oc-graph.jpg",
     readTime: 6,
   },
   {
     id: "openclaw-skills",
-    title: "OpenClaw 能力教程：Skills — 自定义你的 Agent 技能",
-    excerpt: "Skills 是 OpenClaw 中教 Agent 如何使用工具的核心机制。本文带你从零开始创建、配置和部署自定义 Skill。",
-    content: `# OpenClaw 能力教程：Skills — 自定义你的 Agent 技能
+    title: "教程对照：Skills 技能 → OpenClaw 的 Skill Workshop 系统",
+    excerpt: "教程里技能是代码函数，OpenClaw 的技能是 Markdown 文件——教 Agent 如何用工具，还可审查、可复用。",
+    content: `# 教程对照：Skills 技能 → OpenClaw 的 Skill Workshop 系统
 
-**Skills** 是 OpenClaw 中教 Agent 如何使用工具的核心机制。每个 Skill 是一个包含 \`SKILL.md\` 文件的目录，用自然语言描述工具的使用场景和方法。
+教程最后一个模块是 **Skills 技能**：给 Agent 封装特定领域的能力（如搜索、编码、分析）。
 
-## 什么是 Skill？
+## 教程里的做法
 
-Skill 本质上是一个 Markdown 文件（\`SKILL.md\`），包含：
-- **YAML frontmatter**：定义名称、描述、版本等元数据
-- **Markdown 正文**：给 Agent 的使用指南
+技能 = 代码：定义函数、绑定工具、配置提示词。每次加技能都要写代码、部署、测试。
 
-\`\`\`markdown
----
-name: my-skill
-description: 一个自定义技能，用于处理特定任务
-dependencies: []
-version: "1.0.0"
----
+## OpenClaw 的对应能力：SKILL.md + Skill Workshop
 
-# 我的技能
-
-当你需要...时，请使用这个技能：
-
-1. 步骤一
-2. 步骤二
-3. 步骤三
-\`\`\`
-
-## Skill 的加载顺序
-
-OpenClaw 从多个来源加载 Skills，优先级从高到低：
-
-| 优先级 | 来源 | 路径 |
-|--------|------|------|
-| 1 - 最高 | Workspace skills | workspace/skills |
-| 2 | Project agent skills | workspace/.agents/skills |
-| 3 | Personal agent skills | ~/.agents/skills |
-| 4 | Managed / local skills | ~/.openclaw/skills |
-| 5 | Bundled skills | 内置随安装 |
-| 6 - 最低 | Extra directories | skills.load.extraDirs |
-
-## 创建你的第一个 Skill
-
-### 1. 创建目录结构
-
-\`\`\`bash
-mkdir -p ~/.openclaw/workspace/skills/hello-world
-cd ~/.openclaw/workspace/skills/hello-world
-touch SKILL.md
-\`\`\`
-
-### 2. 编写 SKILL.md
+OpenClaw 的技能是一个目录 + 一个 **\`SKILL.md\`** 文件：
 
 \`\`\`markdown
 ---
 name: hello-world
 description: 一个简单技能，用于演示如何创建自定义 Skill
-version: "1.0.0"
 ---
 
 # Hello World Skill
@@ -552,72 +933,51 @@ version: "1.0.0"
 2. 返回结果给用户
 \`\`\`
 
-### 3. 测试 Skill
+## 技能加载顺序
 
-创建完成后，重启 Gateway 使新 Skill 生效：
+| 优先级 | 来源 | 路径 |
+|--------|------|------|
+| 1 | Workspace skills | \<workspace\>/skills |
+| 2 | Project agent skills | \<workspace\>/.agents/skills |
+| 3 | Personal agent skills | ~/.agents/skills |
+| 4 | Managed skills | ~/.openclaw/skills |
+| 5 | Bundled skills | 随安装内置 |
 
-\`\`\`bash
-openclaw gateway restart
-\`\`\`
+## Skill Workshop：技能的审查流程
 
-## 进阶：带依赖的 Skill
-
-复杂的 Skill 可能需要额外的依赖或工具：
-
-\`\`\`markdown
----
-name: weather-checker
-description: 检查指定城市的天气情况
-version: "1.0.0"
-dependencies:
-  - web_fetch
----
-
-# 天气查询 Skill
-
-使用 web_fetch 获取天气信息：
+这是教程里完全没有的：**Skill Workshop** 让技能先成为提案（proposal），审查通过后才应用：
 
 \`\`\`javascript
-const response = await web_fetch({
-  url: "https://wttr.in/shanghai?format=j1",
-  maxChars: 5000
-});
-\`\`\`
-\`\`\`
-
-## 使用 Skill Workshop 管理 Skills
-
-OpenClaw 提供了 **Skill Workshop** 工具来创建、更新、审查和部署 Skill：
-
-\`\`\`javascript
-// 创建新 Skill
+// 创建技能提案
 skill_workshop({
   action: "create",
   name: "my-new-skill",
-  description: "描述这个 Skill 的功能",
-  proposal_content: "# Skill 内容..."
+  description: "描述技能功能",
+  proposal_content: "# 技能内容...",
 });
 
-// 列出所有 Skills
+// 列出提案
 skill_workshop({ action: "list" });
+
+// 应用 / 拒绝 / 隔离
+skill_workshop({ action: "apply", proposal_id: "..." });
 \`\`\`
 
-## 最佳实践
+## 对比总结
 
-1. **简洁描述**：description 控制在 160 字符以内
-2. **清晰结构**：使用标题和列表组织内容
-3. **包含示例**：给出具体的调用示例
-4. **版本管理**：每次重要更新递增 version
-5. **依赖明确**：列出所需的工具和依赖
+| 维度 | 教程 | OpenClaw |
+|------|------|----------|
+| 技能形式 | 代码 | Markdown 文件 |
+| 创建 | 写代码部署 | 写文件即生效 |
+| 审查 | 无 | Skill Workshop |
+| 共享 | 自己分发 | 工作区/全局多级 |
 
-## 总结
-
-Skills 让 OpenClaw Agent 变得可扩展和可定制。通过编写 \`SKILL.md\`，你可以教会 Agent 如何使用各种工具，实现复杂的工作流自动化。`,
+**一句话**：教程的技能是函数，OpenClaw 的技能是文档——教 Agent 怎么用工具，比替它写死逻辑更灵活。`,
     date: "2026-08-04",
-    category: "技术",
-    tags: ["OpenClaw", "Skills", "自定义", "自动化"],
+    category: "教程对照",
+    tags: ["教程对照", "Skills", "技能", "OpenClaw"],
     coverImage: "/images/cover-oc-skills.jpg",
-    readTime: 6,
+    readTime: 5,
   },
 ]
 
